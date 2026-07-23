@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -18,6 +19,7 @@ import (
 
 func main() {
 	cfg := config.Load()
+	log.Printf("DEBUG cfg: env=%s host=%s port=%s user=%s dbname=%s", cfg.AppEnv, cfg.DBHost, cfg.DBPort, cfg.DBUser, cfg.DBName)
 
 	db, err := postgres.NewPostgresDB(cfg)
 	if err != nil {
@@ -36,12 +38,18 @@ func main() {
 	userHandler := handler.NewUserHandler(userSvc)
 
 	app := fiber.New(fiber.Config{
-		AppName: "go-user-service",
+		AppName:      "Video Streaming AI Platform Service",
+		BodyLimit:    int(cfg.MaxRequestSize),
+		ReadTimeout:  cfg.RequestTimeout,
+		WriteTimeout: cfg.RequestTimeout,
 	})
 
 	app.Use(recover.New())
 	app.Use(fiberlogger.New())
-	app.Use(cors.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     strings.Join(cfg.AllowedOrigins, ","),
+		AllowCredentials: cfg.CORSAllowCredentials,
+	}))
 
 	router.SetupRoutes(app, userHandler)
 

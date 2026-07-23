@@ -3,14 +3,18 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
 
-// Config holds all application configuration values.
+// Config holds all application configuration values, resolved for the
+// currently active environment (APP_ENV).
 type Config struct {
-	AppEnv  string
-	AppPort string
+	AppEnv   string
+	LogLevel string
+	AppPort  string
 
 	DBHost         string
 	DBPort         string
@@ -20,25 +24,67 @@ type Config struct {
 	DBSSLMode      string
 	DBMaxOpenConns int
 	DBMaxIdleConns int
+
+	JWTSecret     string
+	JWTExpiration time.Duration
+
+	RateLimitPerMinute int
+	MaxRequestSize     int64
+	RequestTimeout     time.Duration
+
+	AllowedOrigins       []string
+	CORSAllowCredentials bool
 }
 
-// Load reads configuration from .env (if present) and environment variables,
-// falling back to sane defaults for local development.
+// envSuffix maps APP_ENV to the suffix used on per-environment variables,
+// e.g. APP_ENV=local -> reads DB_HOST_LOCAL, JWT_SECRET_LOCAL, etc.
+func envSuffix(appEnv string) string {
+	switch strings.ToLower(appEnv) {
+	case "local":
+		return "LOCAL"
+	case "development", "dev":
+		return "DEV"
+	case "uat":
+		return "UAT"
+	case "production", "prod":
+		return "PROD"
+	default:
+		return "LOCAL"
+	}
+}
+
+// Load reads configuration from .env (if present) and environment variables.
+// It first determines APP_ENV, then resolves every other setting using the
+// matching per-environment suffix (_LOCAL / _DEV / _UAT / _PROD).
 func Load() *Config {
 	_ = godotenv.Load()
 
-	return &Config{
-		AppEnv:  getEnv("APP_ENV", "development"),
-		AppPort: getEnv("APP_PORT", "8080"),
+	appEnv := getEnv("APP_ENV", "local")
+	suf := envSuffix(appEnv)
 
-		DBHost:         getEnv("DB_HOST", "localhost"),
-		DBPort:         getEnv("DB_PORT", "5432"),
-		DBUser:         getEnv("DB_USER", "postgres"),
-		DBPassword:     getEnv("DB_PASSWORD", "postgres"),
-		DBName:         getEnv("DB_NAME", "userdb"),
-		DBSSLMode:      getEnv("DB_SSLMODE", "disable"),
-		DBMaxOpenConns: getEnvAsInt("DB_MAX_OPEN_CONNS", 25),
-		DBMaxIdleConns: getEnvAsInt("DB_MAX_IDLE_CONNS", 10),
+	return &Config{
+		AppEnv:   appEnv,
+		LogLevel: getEnv("LOG_LEVEL", "info"),
+		AppPort:  getEnv("PORT", "8080"),
+
+		DBHost:         getEnv("DB_HOST_"+suf, "localhost"),
+		DBPort:         getEnv("DB_PORT_"+suf, "5432"),
+		DBUser:         getEnv("DB_USER_"+suf, "postgres"),
+		DBPassword:     getEnv("DB_PASSWORD_"+suf, ""),
+		DBName:         getEnv("DB_NAME_"+suf, "userdb"),
+		DBSSLMode:      getEnv("DB_SSLMODE_"+suf, "disable"),
+		DBMaxOpenConns: getEnvAsInt("DB_MAX_OPEN_CONNS_"+suf, 25),
+		DBMaxIdleConns: getEnvAsInt("DB_MAX_IDLE_CONNS_"+suf, 10),
+
+		JWTSecret:     getEnv("JWT_SECRET_"+suf, ""),
+		JWTExpiration: getEnvAsDuration("JWT_EXPIRATION_"+suf, 24*time.Hour),
+
+		RateLimitPerMinute: getEnvAsInt("RATE_LIMIT_PER_MINUTE_"+suf, 1000),
+		MaxRequestSize:     getEnvAsInt64("MAX_REQUEST_SIZE_"+suf, 104857600),
+		RequestTimeout:     getEnvAsDuration("REQUEST_TIMEOUT_"+suf, 60*time.Second),
+
+		AllowedOrigins:       getEnvAsSlice("ALLOWED_ORIGINS_"+suf, []string{"*"}),
+		CORSAllowCredentials: getEnvAsBool("CORS_ALLOW_CREDENTIALS_"+suf, false),
 	}
 }
 
@@ -54,6 +100,44 @@ func getEnvAsInt(key string, fallback int) int {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i
 		}
+	}
+	return fallback
+}
+
+func getEnvAsInt64(key string, fallback int64) int64 {
+	if v, ok := os.LookupEnv(key); ok {
+		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return i
+		}
+	}
+	return fallback
+}
+
+func getEnvAsBool(key string, fallback bool) bool {
+	if v, ok := os.LookupEnv(key); ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return fallback
+}
+
+func getEnvAsDuration(key string, fallback time.Duration) time.Duration {
+	if v, ok := os.LookupEnv(key); ok {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return fallback
+}
+
+func getEnvAsSlice(key string, fallback []string) []string {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		parts := strings.Split(v, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 	return fallback
 }
