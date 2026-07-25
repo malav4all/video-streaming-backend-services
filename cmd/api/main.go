@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"strings"
 
@@ -9,17 +10,20 @@ import (
 	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
+	"github.com/yourorg/go-user-service/internal/auth"
 	"github.com/yourorg/go-user-service/internal/config"
 	"github.com/yourorg/go-user-service/internal/delivery/http/handler"
+	appmiddleware "github.com/yourorg/go-user-service/internal/delivery/http/middleware"
 	"github.com/yourorg/go-user-service/internal/delivery/http/router"
 	"github.com/yourorg/go-user-service/internal/domain/user"
 	"github.com/yourorg/go-user-service/internal/repository/postgres"
+	redisrepo "github.com/yourorg/go-user-service/internal/repository/redis"
 	userUsecase "github.com/yourorg/go-user-service/internal/usecase/user"
 )
 
 func main() {
+	ctx := context.Background()
 	cfg := config.Load()
-	log.Printf("DEBUG cfg: env=%s host=%s port=%s user=%s dbname=%s", cfg.AppEnv, cfg.DBHost, cfg.DBPort, cfg.DBUser, cfg.DBName)
 
 	db, err := postgres.NewPostgresDB(cfg)
 	if err != nil {
@@ -32,10 +36,28 @@ func main() {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
 
+	redisClient := redisrepo.NewRedisClient(cfg)
+
+	keycloakClient, err := auth.NewKeycloakClient(ctx, &auth.Config{
+		BaseURL:      cfg.KeycloakBaseURL,
+		Realm:        cfg.KeycloakRealm,
+		ClientID:     cfg.KeycloakClientID,
+		ClientSecret: cfg.KeycloakClientSecret,
+		RedirectURL:  cfg.KeycloakRedirectURL,
+	})
+	if err != nil {
+		log.Fatalf("failed to initialize keycloak client: %v", err)
+	}
+
 	// Wiring: repository (adapter) -> usecase (business logic) -> handler (delivery)
 	userRepo := postgres.NewUserRepository(db)
 	userSvc := userUsecase.NewUserUsecase(userRepo)
 	userHandler := handler.NewUserHandler(userSvc)
+
+	stateStore := redisrepo.NewStateStore(redisClient)
+	sessionStore := redisrepo.NewSessionStore(redisClient, cfg.SessionTTL)
+	authHandler := handler.NewAuthHandler(keycloakClient, stateStore, sessionStore, cfg.SessionTTL)
+	authMiddleware := appmiddleware.NewAuthMiddleware(keycloakClient, sessionStore)
 
 	app := fiber.New(fiber.Config{
 		AppName:      "Video Streaming AI Platform Service",
@@ -51,7 +73,7 @@ func main() {
 		AllowCredentials: cfg.CORSAllowCredentials,
 	}))
 
-	router.SetupRoutes(app, userHandler)
+	router.SetupRoutes(app, userHandler, authHandler, authMiddleware)
 
 	log.Printf("server starting on port %s (env: %s)", cfg.AppPort, cfg.AppEnv)
 	if err := app.Listen(":" + cfg.AppPort); err != nil {
