@@ -34,6 +34,19 @@ type Config struct {
 
 	AllowedOrigins       []string
 	CORSAllowCredentials bool
+
+	KeycloakBaseURL      string
+	KeycloakRealm        string
+	KeycloakClientID     string
+	KeycloakClientSecret string
+	KeycloakRedirectURL  string
+
+	RedisHost     string
+	RedisPort     string
+	RedisUsername string
+	RedisPassword string
+	RedisDB       int
+	SessionTTL    time.Duration
 }
 
 // envSuffix maps APP_ENV to the suffix used on per-environment variables,
@@ -85,6 +98,19 @@ func Load() *Config {
 
 		AllowedOrigins:       getEnvAsSlice("ALLOWED_ORIGINS_"+suf, []string{"*"}),
 		CORSAllowCredentials: getEnvAsBool("CORS_ALLOW_CREDENTIALS_"+suf, false),
+
+		KeycloakBaseURL:      getEnv("KEYCLOAK_URL_"+suf, "http://localhost:8080"),
+		KeycloakRealm:        getEnv("KEYCLOAK_REALM_"+suf, "master"),
+		KeycloakClientID:     getEnv("KEYCLOAK_CLIENT_ID_"+suf, ""),
+		KeycloakClientSecret: getEnv("KEYCLOAK_CLIENT_SECRET_"+suf, ""),
+		KeycloakRedirectURL:  getEnv("KEYCLOAK_REDIRECT_URL_"+suf, ""),
+
+		RedisHost:     getEnv("REDIS_HOST_"+suf, "localhost"),
+		RedisPort:     getEnv("REDIS_PORT_"+suf, "6379"),
+		RedisUsername: getEnv("REDIS_USERNAME_"+suf, ""),
+		RedisPassword: getEnv("REDIS_PASSWORD_"+suf, ""),
+		RedisDB:       getEnvAsInt("REDIS_DB_"+suf, 0),
+		SessionTTL:    getEnvAsDuration("SESSION_TTL_"+suf, 24*time.Hour),
 	}
 }
 
