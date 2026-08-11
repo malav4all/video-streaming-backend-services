@@ -10,6 +10,7 @@ func SetupRoutes(
 	app *fiber.App,
 	userHandler *handler.UserHandler,
 	authHandler *handler.AuthHandler,
+	tenantHandler *handler.TenantHandler,
 	authMiddleware *middleware.AuthMiddleware,
 ) {
 	api := app.Group("/api/v1")
@@ -23,7 +24,7 @@ func SetupRoutes(
 	authRoutes.Get("/login", authHandler.Login)
 	authRoutes.Get("/callback", authHandler.Callback)
 	authRoutes.Post("/logout", authHandler.Logout)
-
+	authRoutes.Get("/me", authMiddleware.RequireAuth(), authHandler.Me)
 	// User CRUD — now requires an authenticated Keycloak session.
 	users := api.Group("/users", authMiddleware.RequireAuth())
 	users.Post("/", userHandler.Create)
@@ -32,4 +33,11 @@ func SetupRoutes(
 	users.Put("/:id", userHandler.Update)
 	users.Delete("/:id", userHandler.Delete)
 	// ...
+
+	tenants := api.Group("/tenants", authMiddleware.RequireAuth())
+	tenants.Post("/", tenantHandler.Create)
+	tenants.Get("/", tenantHandler.GetAll)
+	tenants.Get("/:id", tenantHandler.GetByID)
+	tenants.Put("/:id", tenantHandler.Update)
+	tenants.Delete("/:id", tenantHandler.Delete)
 }

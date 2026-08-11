@@ -15,9 +15,11 @@ import (
 	"github.com/yourorg/go-user-service/internal/delivery/http/handler"
 	appmiddleware "github.com/yourorg/go-user-service/internal/delivery/http/middleware"
 	"github.com/yourorg/go-user-service/internal/delivery/http/router"
+	"github.com/yourorg/go-user-service/internal/domain/tenant"
 	"github.com/yourorg/go-user-service/internal/domain/user"
 	"github.com/yourorg/go-user-service/internal/repository/postgres"
 	redisrepo "github.com/yourorg/go-user-service/internal/repository/redis"
+	tenantUsecase "github.com/yourorg/go-user-service/internal/usecase/tenant"
 	userUsecase "github.com/yourorg/go-user-service/internal/usecase/user"
 )
 
@@ -32,7 +34,7 @@ func main() {
 
 	// AutoMigrate is convenient for development. For production, prefer
 	// versioned SQL migrations (see /migrations) run via a migration tool.
-	if err := db.AutoMigrate(&user.User{}); err != nil {
+	if err := db.AutoMigrate(&user.User{}, &tenant.Tenant{}); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
 
@@ -54,10 +56,14 @@ func main() {
 	userSvc := userUsecase.NewUserUsecase(userRepo)
 	userHandler := handler.NewUserHandler(userSvc)
 
+	tenantRepo := postgres.NewTenantRepository(db)
+	tenantSvc := tenantUsecase.NewTenantUsecase(tenantRepo)
+	tenantHandler := handler.NewTenantHandler(tenantSvc)
+
 	stateStore := redisrepo.NewStateStore(redisClient)
 	sessionStore := redisrepo.NewSessionStore(redisClient, cfg.SessionTTL)
 	authHandler := handler.NewAuthHandler(keycloakClient, stateStore, sessionStore, cfg.SessionTTL)
-	authMiddleware := appmiddleware.NewAuthMiddleware(keycloakClient, sessionStore)
+	authMiddleware := appmiddleware.NewAuthMiddleware(keycloakClient, sessionStore, tenantSvc)
 
 	app := fiber.New(fiber.Config{
 		AppName:      "Video Streaming AI Platform Service",
@@ -73,7 +79,7 @@ func main() {
 		AllowCredentials: cfg.CORSAllowCredentials,
 	}))
 
-	router.SetupRoutes(app, userHandler, authHandler, authMiddleware)
+	router.SetupRoutes(app, userHandler, authHandler, tenantHandler, authMiddleware)
 
 	log.Printf("server starting on port %s (env: %s)", cfg.AppPort, cfg.AppEnv)
 	if err := app.Listen(":" + cfg.AppPort); err != nil {

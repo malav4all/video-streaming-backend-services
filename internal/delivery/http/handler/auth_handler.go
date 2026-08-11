@@ -9,6 +9,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/yourorg/go-user-service/internal/auth"
+	"github.com/yourorg/go-user-service/internal/delivery/http/middleware"
 	"github.com/yourorg/go-user-service/internal/delivery/http/response"
 	"github.com/yourorg/go-user-service/internal/domain/session"
 	"github.com/yourorg/go-user-service/pkg/random"
@@ -117,6 +118,19 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 	return response.Success(c, fiber.StatusOK, "logout successful", nil)
 }
 
+// Me returns the current session's user info and raw token claims —
+// useful for verifying what's actually in the token (e.g. the groups claim).
+func (h *AuthHandler) Me(c *fiber.Ctx) error {
+	sessionData := c.Locals(middleware.LocalsSessionKey)
+	claims := c.Locals(middleware.LocalsClaimsKey)
+	tenantID, _ := c.Locals(middleware.LocalsTenantIDKey).(string)
+	roles, _ := c.Locals(middleware.LocalsRolesKey).([]string)
+	fmt.Printf("tenantID: %s, roles: %v\n", tenantID, roles)
+	return response.Success(c, fiber.StatusOK, "current session", fiber.Map{
+		"session": sessionData,
+		"claims":  claims,
+	})
+}
 func (h *AuthHandler) validateState(c *fiber.Ctx) error {
 	state := c.Query("state")
 	if state == "" {
